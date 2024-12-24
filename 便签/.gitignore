@@ -1,0 +1,11 @@
+   # Python
+   __pycache__/
+   *.py[cod]
+   *$py.class
+
+   # 便签内容文件
+   note_content.txt
+
+   # 系统文件
+   .DS_Store
+   Thumbs.db
