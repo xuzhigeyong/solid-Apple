@@ -4,13 +4,14 @@ import json
 import os
 from datetime import datetime
 import logging
-import uuid  # 新增：用于生成唯一ID
+import uuid
 
 class StickyNote:
-    def __init__(self, note_id=None, manager=None):
-        # 新增：便签管理器引用和便签ID
+    def __init__(self, note_id=None, manager=None, title=None, content=None):
         self.manager = manager
         self.note_id = note_id or str(uuid.uuid4())
+        self.title = title or "新建便签"
+        self.content = content or ""
         
         self.setup_logging()
         logging.info(f"初始化便签 {self.note_id}")
@@ -22,15 +23,18 @@ class StickyNote:
         # 基本窗口设置
         self.root.geometry("250x300")
         self.root.configure(bg='#ffffd0')
-        logging.debug("窗口基本设置完成")
         
         # 创建UI组件
         self.create_ui()
-        logging.debug("UI组件创建完成")
         
-        # 加载内容
-        self.load_content()
-        
+        # 加载内容（移到create_ui之后）
+        if title:
+            self.title_entry.delete(0, tk.END)
+            self.title_entry.insert(0, title)
+        if content:
+            self.text_area.delete('1.0', tk.END)
+            self.text_area.insert('1.0', content)
+
     def create_ui(self):
         logging.debug("开始创建UI组件")
         try:
@@ -39,11 +43,11 @@ class StickyNote:
             self.title_frame.pack(fill='x', pady=0)
             self.title_frame.pack_propagate(False)
             
-            # 添加标题栏按钮
-            self.pin_button = tk.Button(self.title_frame, text="📌", 
-                                      command=self.toggle_topmost,
-                                      relief='raised', bd=0, bg='#e6e6b8')
-            self.pin_button.pack(side='left', padx=3)
+            # 添加标题输入框
+            self.title_entry = tk.Entry(self.title_frame, bg='#e6e6b8', 
+                                      relief='flat', width=20)
+            self.title_entry.insert(0, self.title)
+            self.title_entry.pack(side='left', padx=3)
             
             # 添加透明度滑块
             self.opacity_scale = ttk.Scale(self.title_frame, 
@@ -63,8 +67,9 @@ class StickyNote:
             self.title_frame.bind('<Button-1>', self.get_pos)
             self.title_frame.bind('<B1-Motion>', self.move_window)
             self.text_area.bind('<KeyRelease>', self.auto_save)
+            self.title_entry.bind('<KeyRelease>', self.auto_save)
             
-            # 新增：添加新建和删除按钮
+            # 添加按钮
             self.new_button = tk.Button(self.title_frame, text="➕", 
                                       command=self.create_new_note,
                                       relief='raised', bd=0, bg='#e6e6b8')
@@ -75,41 +80,20 @@ class StickyNote:
                                          relief='raised', bd=0, bg='#e6e6b8')
             self.delete_button.pack(side='left', padx=3)
             
-            # 其他UI组件...
-            logging.debug("UI组件创建完成")
+            self.list_button = tk.Button(self.title_frame, text="📋", 
+                                       command=self.show_note_list,
+                                       relief='raised', bd=0, bg='#e6e6b8')
+            self.list_button.pack(side='left', padx=3)
             
         except Exception as e:
             logging.error(f"创建UI组件时出错: {e}")
             raise
 
-    def load_content(self):
-        logging.info("开始加载便签内容")
-        try:
-            if os.path.exists('note_content.txt'):
-                logging.debug("找到内容文件")
-                with open('note_content.txt', 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    logging.debug(f"读取到内容，长度: {len(content)}")
-                    self.text_area.insert('1.0', content)
-            else:
-                logging.warning("内容文件不存在，将创建新文件")
-                with open('note_content.txt', 'w', encoding='utf-8') as f:
-                    f.write('')
-        except Exception as e:
-            logging.error(f"加载内容时出错: {e}")
-
     def auto_save(self, event=None):
-        logging.debug("开始自动保存")
-        try:
-            content = self.text_area.get('1.0', 'end-1c')
-            with open('note_content.txt', 'w', encoding='utf-8') as f:
-                f.write(content)
-            logging.debug(f"内容已保存，长度: {len(content)}")
-        except Exception as e:
-            logging.error(f"自动保存时出错: {e}")
+        if self.manager:
+            self.manager.save_notes()
 
     def change_opacity(self, value):
-        logging.debug(f"设置透明度: {value}")
         try:
             self.root.attributes('-alpha', float(value))
         except Exception as e:
@@ -123,40 +107,24 @@ class StickyNote:
         new_x = self.root.winfo_x() + (event.x - self.x)
         new_y = self.root.winfo_y() + (event.y - self.y)
         self.root.geometry(f"+{new_x}+{new_y}")
-        
-    def toggle_topmost(self):
-        current_state = self.root.attributes('-topmost')
-        self.root.attributes('-topmost', not current_state)
-        self.pin_button.configure(relief='sunken' if not current_state else 'raised')
 
     def create_new_note(self):
         if self.manager:
             self.manager.create_note()
-        else:
-            StickyNote()
 
     def delete_note(self):
         if self.manager:
             self.manager.delete_note(self.note_id)
         self.root.destroy()
 
-    def get_note_data(self):
-        return {
-            'id': self.note_id,
-            'content': self.text_area.get('1.0', 'end-1c'),
-            'position': (self.root.winfo_x(), self.root.winfo_y()),
-            'opacity': self.opacity_scale.get(),
-            'topmost': self.root.attributes('-topmost')
-        }
+    def show_note_list(self):
+        if self.manager:
+            self.manager.root.deiconify()
+            self.manager.root.lift()
 
     def setup_logging(self):
         try:
-            # 确保日志目录存在
-            log_dir = os.path.dirname("便签/sticky_note.log")
-            if not os.path.exists(log_dir):
-                os.makedirs(log_dir)
-            
-            # 配置日志
+            os.makedirs('便签', exist_ok=True)
             logging.basicConfig(
                 level=logging.DEBUG,
                 format='%(asctime)s - %(levelname)s - %(message)s',
@@ -165,65 +133,172 @@ class StickyNote:
                     logging.StreamHandler()
                 ]
             )
-            logging.info("=== 便签程序启动 ===")
-            
         except Exception as e:
-            print(f"设置日志时出错: {e}")
+            print(f"设置��志时出错: {e}")
             raise
-            
-    def run(self):
-        self.root.mainloop()
 
-# 新增：便签管理器类
 class StickyNoteManager:
     def __init__(self):
-        # 创建隐藏的主窗口
         self.root = tk.Tk()
-        self.root.withdraw()  # 隐藏主窗口
+        self.root.title("便签管理器")
+        self.root.geometry("400x500")
         self.notes = {}
+        
+        # 确保数据目录存在
+        os.makedirs('data', exist_ok=True)
+        
+        # 创建管理界面
+        self.create_manager_ui()
+        
+        # 加载便签
         self.load_notes()
 
+    def create_manager_ui(self):
+        # 创建顶部工具栏
+        self.toolbar = tk.Frame(self.root)
+        self.toolbar.pack(fill='x', padx=5, pady=5)
+        
+        # 添加新建便签按钮
+        tk.Button(self.toolbar, text="新建便签", 
+                 command=self.create_note).pack(side='left', padx=5)
+        
+        # 添加搜索框
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', self.filter_notes)
+        tk.Entry(self.toolbar, textvariable=self.search_var, 
+                width=20).pack(side='right', padx=5)
+        tk.Label(self.toolbar, text="搜索：").pack(side='right')
+        
+        # 创建便签列表框架
+        self.list_frame = tk.Frame(self.root)
+        self.list_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        
+        # 创建滚动条
+        scrollbar = tk.Scrollbar(self.list_frame)
+        scrollbar.pack(side='right', fill='y')
+        
+        # 创建画布和内部框架用于滚动
+        self.canvas = tk.Canvas(self.list_frame)
+        self.notes_frame = tk.Frame(self.canvas)
+        
+        # 配置滚动
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.configure(command=self.canvas.yview)
+        
+        # 放置画布和便签框架
+        self.canvas.pack(side='left', fill='both', expand=True)
+        self.canvas_frame = self.canvas.create_window(
+            (0, 0), window=self.notes_frame, anchor='nw')
+        
+        # 绑定调整大小事件
+        self.notes_frame.bind('<Configure>', self.on_frame_configure)
+        self.canvas.bind('<Configure>', self.on_canvas_configure)
+
+    def on_frame_configure(self, event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def on_canvas_configure(self, event):
+        self.canvas.itemconfig(self.canvas_frame, width=event.width)
+
+    def filter_notes(self, *args):
+        search_text = self.search_var.get().lower()
+        self.update_notes_list(search_text)
+
     def create_note(self, note_data=None):
-        note = StickyNote(manager=self)
+        note = StickyNote(
+            manager=self,
+            note_id=note_data.get('id') if note_data else None,
+            title=note_data.get('title') if note_data else None,
+            content=note_data.get('content', '') if note_data else None
+        )
+        
         self.notes[note.note_id] = note
+        
         if note_data:
-            self.restore_note_state(note, note_data)
+            x, y = note_data.get('position', (100, 100))
+            note.root.geometry(f"+{x}+{y}")
+            note.opacity_scale.set(note_data.get('opacity', 1.0))
+            note.root.attributes('-topmost', note_data.get('topmost', False))
+            
         self.save_notes()
         return note
 
     def delete_note(self, note_id):
         if note_id in self.notes:
+            self.notes[note_id].root.destroy()
             del self.notes[note_id]
             self.save_notes()
+        self.update_notes_list()
 
     def save_notes(self):
-        data = {note_id: note.get_note_data() for note_id, note in self.notes.items()}
-        with open('notes_data.json', 'w', encoding='utf-8') as f:
+        data = {}
+        for note_id, note in self.notes.items():
+            data[note_id] = {
+                'id': note.note_id,
+                'title': note.title_entry.get(),
+                'content': note.text_area.get('1.0', 'end-1c'),
+                'position': (note.root.winfo_x(), note.root.winfo_y()),
+                'opacity': note.opacity_scale.get(),
+                'topmost': note.root.attributes('-topmost'),
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+            
+        with open('data/notes.json', 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+            
+        self.update_notes_list()
 
     def load_notes(self):
         try:
-            if os.path.exists('notes_data.json'):
-                with open('notes_data.json', 'r', encoding='utf-8') as f:
+            if os.path.exists('data/notes.json'):
+                with open('data/notes.json', 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 for note_data in data.values():
                     self.create_note(note_data)
             else:
-                self.create_note()  # 创建第一个便签
+                self.create_note()
         except Exception as e:
             logging.error(f"加载便签数据时出错: {e}")
             self.create_note()
 
-    def restore_note_state(self, note, data):
-        note.text_area.insert('1.0', data['content'])
-        x, y = data['position']
-        note.root.geometry(f"+{x}+{y}")
-        note.opacity_scale.set(data['opacity'])
-        note.root.attributes('-topmost', data['topmost'])
+    def update_notes_list(self, search_text=''):
+        for widget in self.notes_frame.winfo_children():
+            widget.destroy()
+            
+        for note_id, note in self.notes.items():
+            title = note.title_entry.get() or "无标题"
+            content = note.text_area.get('1.0', 'end-1c')
+            
+            if search_text and search_text not in title.lower() and \
+               search_text not in content.lower():
+                continue
+                
+            note_frame = tk.Frame(self.notes_frame, relief='solid', bd=1)
+            note_frame.pack(fill='x', padx=5, pady=2)
+            
+            info_frame = tk.Frame(note_frame)
+            info_frame.pack(side='left', fill='x', expand=True, padx=5, pady=5)
+            
+            tk.Label(info_frame, text=title, font=('Arial', 10, 'bold'), 
+                    anchor='w').pack(fill='x')
+            
+            preview = content[:50] + "..." if len(content) > 50 else content
+            tk.Label(info_frame, text=preview, anchor='w', 
+                    wraplength=250).pack(fill='x')
+            
+            button_frame = tk.Frame(note_frame)
+            button_frame.pack(side='right', padx=5, pady=5)
+            
+            tk.Button(button_frame, text="打开", 
+                     command=lambda n=note: n.root.lift()).pack(side='top', pady=2)
+            tk.Button(button_frame, text="删除", 
+                     command=lambda id=note_id: self.delete_note(id)).pack(
+                         side='top', pady=2)
 
     def run(self):
         self.root.mainloop()
 
 if __name__ == '__main__':
     manager = StickyNoteManager()
-    manager.run() 
+    manager.run()
