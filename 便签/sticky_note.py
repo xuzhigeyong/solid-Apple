@@ -16,24 +16,53 @@ class StickyNote:
         self.setup_logging()
         logging.info(f"初始化便签 {self.note_id}")
         
-        # 修改：总是创建 Toplevel 窗口
+        # 创建窗口但默认不显示
         self.root = tk.Toplevel(manager.root if manager else None)
         self.root.title("便签")
-        
-        # 基本窗口设置
         self.root.geometry("250x300")
         self.root.configure(bg='#ffffd0')
         
         # 创建UI组件
         self.create_ui()
         
-        # 加载内容（移到create_ui之后）
+        # 加载内容
         if title:
             self.title_entry.delete(0, tk.END)
             self.title_entry.insert(0, title)
         if content:
             self.text_area.delete('1.0', tk.END)
             self.text_area.insert('1.0', content)
+            
+        # 默认隐藏窗口
+        self.root.withdraw()
+        
+        # 绑定关闭事件
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+    def on_closing(self):
+        """处理窗口关闭事件"""
+        self.root.withdraw()  # 隐藏而不是销毁
+        
+    def show(self):
+        """显示便签"""
+        if not self.root.winfo_viewable():
+            self.root.deiconify()
+            self.root.lift()
+        else:
+            # 如果已经可见，则闪烁提示
+            self.flash_window()
+            
+    def flash_window(self):
+        """窗口闪烁效果"""
+        current_alpha = self.root.attributes('-alpha')
+        def flash_cycle(count=0):
+            if count < 6:  # 闪烁3次
+                new_alpha = 0.3 if count % 2 == 0 else 1.0
+                self.root.attributes('-alpha', new_alpha)
+                self.root.after(100, lambda: flash_cycle(count + 1))
+            else:
+                self.root.attributes('-alpha', current_alpha)
+        flash_cycle()
 
     def create_ui(self):
         logging.debug("开始创建UI组件")
@@ -134,7 +163,7 @@ class StickyNote:
                 ]
             )
         except Exception as e:
-            print(f"设置��志时出错: {e}")
+            print(f"设置日志时出错: {e}")
             raise
 
 class StickyNoteManager:
@@ -152,6 +181,9 @@ class StickyNoteManager:
         
         # 加载便签
         self.load_notes()
+        
+        # 绑定关闭事件
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
     def create_manager_ui(self):
         # 创建顶部工具栏
@@ -185,7 +217,7 @@ class StickyNoteManager:
         self.canvas.configure(yscrollcommand=scrollbar.set)
         scrollbar.configure(command=self.canvas.yview)
         
-        # 放置画布和便签框架
+        # 放置画布和���签框架
         self.canvas.pack(side='left', fill='both', expand=True)
         self.canvas_frame = self.canvas.create_window(
             (0, 0), window=self.notes_frame, anchor='nw')
@@ -225,7 +257,7 @@ class StickyNoteManager:
 
     def delete_note(self, note_id):
         if note_id in self.notes:
-            self.notes[note_id].root.destroy()
+            self.notes[note_id].root.destroy()  # 真正销毁窗口
             del self.notes[note_id]
             self.save_notes()
         self.update_notes_list()
@@ -290,11 +322,22 @@ class StickyNoteManager:
             button_frame = tk.Frame(note_frame)
             button_frame.pack(side='right', padx=5, pady=5)
             
+            # 修改打开按钮的行为
             tk.Button(button_frame, text="打开", 
-                     command=lambda n=note: n.root.lift()).pack(side='top', pady=2)
+                     command=lambda n=note: n.show()).pack(side='top', pady=2)
             tk.Button(button_frame, text="删除", 
                      command=lambda id=note_id: self.delete_note(id)).pack(
                          side='top', pady=2)
+
+    def on_closing(self):
+        """处理管理器窗口关闭事件"""
+        # 保存所有便签
+        self.save_notes()
+        # 销毁所有窗口
+        for note in self.notes.values():
+            note.root.destroy()
+        # 关闭主窗口
+        self.root.destroy()
 
     def run(self):
         self.root.mainloop()
